@@ -1,0 +1,50 @@
+# Gradle and Kotlin
+.gradle/
+build/
+.kotlin/
+
+# Local configuration (SDK path, JDK path, etc.)
+local.properties
+
+# Logs and OS files
+*.log
+.DS_Store
+
+# Android Studio and IntelliJ
+captures/
+.externalNativeBuild/
+.cxx/
+*.iml
+.idea/
+misc.xml
+deploymentTargetDropDown.xml
+render.experimental.xml
+*.hprof
+
+# Build outputs (the signed APKs go to .local/apk)
+*.aab
+*.apk
+output-metadata.json
+
+# Signing keys and secrets: never commit. The release key lives in the private AgentDocs repo.
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+keystore.properties
+signing.properties
+.env
+.env.*
+credentials*.json
+google-services.json
+
+# All local data: APKs, logs, screenshots, scratch files, and the symlinks to the agent docs and the signing key
+.local/
+
+# Agent documentation: lives in the private AgentDocs repo, symlinked here. Never add it to this public repo.
+/CLAUDE.md
+/PLAN.md
+/HANDOFF.md
+CLAUDE.local.md
+.claude/

@@ -1,0 +1,17 @@
+ReadAhead
+Copyright (C) 2026 ReadAhead contributors
+
+This program is free software: you can redistribute it and/or modify it under the terms of the
+GNU Affero General Public License as published by the Free Software Foundation, version 3 (see LICENSE).
+
+Third-party software included in the app:
+- Apache Commons Compress (reading EPUB archives), with its dependencies Apache Commons IO, Lang and Codec.
+  Apache License 2.0. Their NOTICE files:
+    Apache Commons Compress, Copyright 2002-2025 The Apache Software Foundation
+    Apache Commons IO, Copyright 2002-2025 The Apache Software Foundation
+    Apache Commons Lang, Copyright 2001-2025 The Apache Software Foundation
+    Apache Commons Codec, Copyright 2002-2025 The Apache Software Foundation
+  This product includes software developed at The Apache Software Foundation (https://www.apache.org/).
+- AndroidX, Jetpack Compose and Material 3 (Google), Kotlin and kotlinx.coroutines (JetBrains): Apache License 2.0.
+
+Tests only: JUnit (EPL-1.0), Robolectric (MIT), AndroidX Test (Apache-2.0). None of the dependencies need Google Play Services.

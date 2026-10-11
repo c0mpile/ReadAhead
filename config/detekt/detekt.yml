@@ -1,0 +1,44 @@
+# Overrides on top of detekt's default config (buildUponDefaultConfig = true).
+style:
+  MaxLineLength:
+    maxLineLength: 140
+  MagicNumber:
+    # Visual constants are normal in Compose UI code.
+    excludes: ['**/test/**', '**/androidTest/**', '**/designsystem/**', '**/feature/**', '**/app/src/**']
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreAnnotation: true
+    ignoreEnums: true
+  UnusedPrivateFunction:
+    ignoreAnnotated: ['Preview']
+  ReturnCount:
+    # `?: return` guard clauses are idiomatic Kotlin.
+    max: 6
+    excludeGuardClauses: true
+  ThrowsCount:
+    # Validating input before a read legitimately throws on each bad case.
+    max: 4
+  LoopWithTooManyJumpStatements:
+    maxJumpCount: 2
+naming:
+  FunctionNaming:
+    ignoreAnnotated: ['Composable']
+  TopLevelPropertyNaming:
+    constantPattern: '[A-Z][A-Za-z0-9_]*'
+complexity:
+  CyclomaticComplexMethod:
+    # A `when` that maps each result to a message is not real complexity.
+    ignoreSimpleWhenEntries: true
+  LongParameterList:
+    allowedFunctionParameters: 7
+    # Injected constructors (repositories, workers) legitimately take many dependencies.
+    allowedConstructorParameters: 9
+    ignoreDefaultParameters: true
+    ignoreAnnotated: ['Composable']
+  LongMethod:
+    ignoreAnnotated: ['Composable']
+  TooManyFunctions:
+    ignoreAnnotatedFunctions: ['Composable']
+    allowedFunctionsPerFile: 19
+    allowedFunctionsPerClass: 19
+    allowedFunctionsPerInterface: 29
