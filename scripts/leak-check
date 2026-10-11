@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Blocks private values from reaching this public repo.
+#   scripts/leak-check            scan the staged diff (added lines and file names)   [pre-commit]
+#   scripts/leak-check --tree     scan every tracked and untracked-unignored file
+# Checks:
+#   - file names that must never be tracked (agent docs, keys, keystores, APKs, .env, .local/)
+#   - private key material and absolute home paths in content
+#   - any email address except *@users.noreply.github.com and example.com/org/net placeholders
+#   - forbidden strings from the untracked .env: READAHEAD_FORBIDDEN='word one|another' (case-insensitive,
+#     e.g. titles from the owner's library); nothing private lives in this script
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+mode="${1:---staged}"
+
+# Read KEY='value' pairs without sourcing the file (values may contain shell metacharacters).
+env_value() {
+  local key="$1" line
+  [[ -f .env ]] || return 0
+  line="$(grep -E "^${key}=" .env | tail -n1 || true)"
+  line="${line#*=}"
+  line="${line%\'}"; line="${line#\'}"
+  line="${line%\"}"; line="${line#\"}"
+  printf '%s' "$line"
+}
+
+patterns=()
+IFS='|' read -r -a extra <<<"$(env_value READAHEAD_FORBIDDEN)"
+for p in "${extra[@]:-}"; do [[ -n "$p" ]] && patterns+=("$p"); done
+if [[ ${#patterns[@]} -eq 0 ]]; then
+  echo "leak-check: WARNING no READAHEAD_FORBIDDEN in .env; only the built-in checks are active" >&2
+fi
+
+case "$mode" in
+  --staged)
+    files="$(git diff --cached --name-only --diff-filter=ACMR)"
+    # Added lines only, prefixed with the file name.
+    content="$(git diff --cached -U0 --no-color --diff-filter=ACMR |
+      awk '/^\+\+\+ b\//{f=substr($0,7); next} /^\+\+\+ /{next} /^\+/{print f": "substr($0,2)}')" ;;
+  --tree)
+    files="$(git ls-files -co --exclude-standard)"
+    content="$(git ls-files -co --exclude-standard -z |
+      xargs -0 -r grep -I -n -H '' 2>/dev/null || true)" ;;
+  *) echo "usage: scripts/leak-check [--staged|--tree]" >&2; exit 2 ;;
+esac
+
+fail=0
+report() { printf 'leak-check: %s\n' "$1" >&2; fail=1; }
+
+bad_files="$(grep -E '(^|/)(CLAUDE\.md|PLAN\.md|HANDOFF\.md|CLAUDE\.local\.md|\.env(\..*)?|keystore\.properties|signing\.properties|local\.properties)$|\.(jks|keystore|p12|pfx|pem|apk|aab)$|^\.local/|^\.claude/' <<<"$files" || true)"
+if [[ -n "$bad_files" ]]; then
+  report "file(s) that must not be in this repo:"
+  sed 's/^/  /' <<<"$bad_files" >&2
+fi
+
+# This script names the patterns it looks for, so it is not scanned for them.
+scanned="$(grep -v -E '^scripts/leak-check:' <<<"$content" || true)"
+
+if grep -q -E -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' <<<"$scanned"; then
+  report "private key material found"
+fi
+if grep -q -E -- '/home/[a-z0-9_-]+/|/Users/[A-Za-z0-9_-]+/' <<<"$scanned"; then
+  report "absolute home path found: $(grep -c -E -- '/home/[a-z0-9_-]+/|/Users/[A-Za-z0-9_-]+/' <<<"$scanned") line(s)"
+fi
+
+for p in "${patterns[@]:-}"; do
+  [[ -n "$p" ]] || continue
+  if grep -F -i -q -- "$p" <<<"$scanned"; then
+    report "forbidden string from .env found (value hidden): $(grep -F -i -c -- "$p" <<<"$scanned") line(s)"
+  fi
+done
+
+# Emails: allow GitHub noreply and RFC 2606 placeholders; skip Kotlin labels like this@Foo.bar.
+emails="$(grep -E -o -i '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' <<<"$scanned" |
+  grep -v -i -E '(^|[^A-Za-z0-9])(this|return|super|break|continue)@' |
+  grep -v -i -E '@users\.noreply\.github\.com$' |
+  grep -v -i -E '@([a-z0-9-]+\.)*example\.(com|org|net)$' | sort -u || true)"
+if [[ -n "$emails" ]]; then
+  report "email address(es) found:"
+  sed 's/^/  /' <<<"$emails" >&2
+fi
+
+if [[ $fail -ne 0 ]]; then
+  echo "leak-check: blocked. Remove the private value and retry." >&2
+  exit 1
+fi
+[[ "$mode" == "--tree" ]] && echo "leak-check: tree clean"
+exit 0
