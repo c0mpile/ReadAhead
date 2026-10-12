@@ -42,9 +42,4 @@ google-services.json
 # All local data: APKs, logs, screenshots, scratch files, and the symlinks to the agent docs and the signing key
 .local/
 
-# Agent documentation: lives in the private AgentDocs repo, symlinked here. Never add it to this public repo.
-/CLAUDE.md
-/PLAN.md
-/HANDOFF.md
-CLAUDE.local.md
-.claude/
+# Agent documentation lives in the private AgentDocs repo (CLAUDE.md, PLAN.md, HANDOFF.md are ignored globally)
