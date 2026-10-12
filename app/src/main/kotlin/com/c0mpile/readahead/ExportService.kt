@@ -101,8 +101,8 @@ class ExportService : Service() {
                 location = save(pending, files)
                 // Copied: nothing is needed in the app's storage any more.
                 files.forEach { it.delete() }
-                request.outDir.delete()
             }
+            request.outDir.delete() // empty by now (the runner removed the chapter files); stays when anything is left
             ExportState.set(ExportUi.Done(location))
         } catch (e: CancellationException) {
             ExportState.set(ExportUi.Cancelled)
