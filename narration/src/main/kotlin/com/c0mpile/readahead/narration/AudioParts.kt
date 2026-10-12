@@ -45,6 +45,7 @@ interface BookJoiner {
         output: File,
         bookTitle: String?,
         author: String?,
+        cover: BookCover?,
     )
 }
 

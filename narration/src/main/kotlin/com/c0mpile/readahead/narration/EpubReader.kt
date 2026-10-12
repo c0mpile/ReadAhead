@@ -32,8 +32,18 @@ object EpubReader {
         val entries = pieces.map { TocEntry(it.title, it.section, it.text.length) }
         val bodyStart = pack.bodyHref?.let { pack.spine.indexOf(it).takeIf { i -> i >= 0 } }
         val kinds = ChapterMatter.classify(entries, bodyStart)
-        return EpubBook(pack.title, pack.author, merge(pieces, kinds))
+        return EpubBook(pack.title, pack.author, merge(pieces, kinds), pack.coverPath?.let { readCover(zip, it) })
     }
+
+    /** The cover image, or null when it is missing, too large or not a JPEG or PNG; a bad cover never stops an export. */
+    private fun readCover(
+        zip: ZipFile,
+        path: String,
+    ): BookCover? =
+        zip
+            .getEntry(path)
+            ?.let { entry -> zip.getInputStream(entry).use { it.readBounded(MAX_COVER_BYTES) } }
+            ?.let(BookCover::of)
 
     private class Piece(
         val title: String,
@@ -161,6 +171,7 @@ object EpubReader {
 
     private const val MAX_SECTION_BYTES = 8L shl 20
     private const val MAX_TOTAL_CHARS = 32L shl 20
+    private const val MAX_COVER_BYTES = 8L shl 20
     private const val MAX_SECTIONS = 5_000
     private const val MAX_IDS = 100_000
     private const val MIN_STANDALONE = 200

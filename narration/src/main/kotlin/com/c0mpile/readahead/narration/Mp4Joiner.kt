@@ -19,10 +19,11 @@ class Mp4Joiner : BookJoiner {
         output: File,
         bookTitle: String?,
         author: String?,
+        cover: BookCover?,
     ) {
         require(chapters.size == titles.size) { "one title per chapter file" }
         val starts = copy(chapters, output)
-        Mp4Tagger.tag(output, titles.zip(starts) { title, start -> ChapterMark(title, start) }, bookTitle, author)
+        Mp4Tagger.tag(output, titles.zip(starts) { title, start -> ChapterMark(title, start) }, bookTitle, author, cover)
     }
 
     /** Writes [inputs] into [output]; returns where each one starts, in milliseconds. */

@@ -93,6 +93,7 @@ class ExportRunnerTest {
                 output: File,
                 bookTitle: String?,
                 author: String?,
+                cover: BookCover?,
             ) {
                 joined = chapters.map { it.name }
                 joinedTitles = titles
@@ -119,7 +120,7 @@ class ExportRunnerTest {
     fun rendersTheOpeningThenEachChapterInOrderAndJoinsThem() =
         runTest {
             val file = runner().run(request(chapter("Chapter 1", "One. ".repeat(10)), chapter("Chapter 2", "Two. ".repeat(10))))
-            assertEquals("My Book - Jane Doe.m4b", file.name)
+            assertEquals("My Book.m4b", file.name)
             assertEquals(listOf("00 - Opening.m4a", "01 - Chapter 1.m4a", "02 - Chapter 2.m4a"), joined)
             assertEquals(listOf("Opening", "Chapter 1", "Chapter 2"), joinedTitles)
             assertEquals(
@@ -206,6 +207,34 @@ class ExportRunnerTest {
         }
 
     @Test
+    fun publishSeesTheBookAndTheChapterFilesBeforeTheyAreDeleted() =
+        runTest {
+            var seen: List<String>? = null
+            val file =
+                runner().run(request(chapter("Chapter 1", sentence)), publish = { book, chapters ->
+                    seen = listOf(book.name) + chapters.map { it.name + ":" + it.exists() }
+                })
+            assertEquals(listOf("My Book.m4b", "00 - Opening.m4a:true", "01 - Chapter 1.m4a:true"), seen)
+            assertTrue(file.exists())
+            assertFalse(File(tmp.root, "out/01 - Chapter 1.m4a").exists())
+        }
+
+    @Test
+    fun aFailedPublishKeepsTheChapterFilesSoARestartOnlyJoinsAgain() =
+        runTest {
+            try {
+                runner().run(request(chapter("Chapter 1", sentence)), publish = { _, _ -> throw ExportException("no room") })
+                throw AssertionError("expected ExportException")
+            } catch (e: ExportException) {
+                assertTrue(e.message.orEmpty().contains("no room"))
+            }
+            assertTrue(File(tmp.root, "out/01 - Chapter 1.m4a").exists())
+            log.clear()
+            runner().run(request(chapter("Chapter 1", sentence)))
+            assertTrue("nothing is rendered again", log.none { it.startsWith("render") })
+        }
+
+    @Test
     fun aFailedJoinKeepsTheChaptersAndSaysSo() =
         runTest {
             val broken =
@@ -216,6 +245,7 @@ class ExportRunnerTest {
                         output: File,
                         bookTitle: String?,
                         author: String?,
+                        cover: BookCover?,
                     ) = throw IOException("disk full")
                 }
             try {

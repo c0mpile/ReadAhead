@@ -1,8 +1,10 @@
 package com.c0mpile.readahead.narration
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -16,17 +18,28 @@ import java.util.zip.ZipOutputStream
 class EpubReaderTest {
     @get:Rule val tmp = TemporaryFolder()
 
-    private fun epub(vararg entries: Pair<String, String>): BookHandle {
+    private fun epub(vararg entries: Pair<String, String>): BookHandle =
+        epubBytes(
+            *entries
+                .map {
+                    it.first to it.second.toByteArray()
+                }.toTypedArray(),
+        )
+
+    private fun epubBytes(vararg entries: Pair<String, ByteArray>): BookHandle {
         val file = File(tmp.root, "book.epub")
         ZipOutputStream(file.outputStream()).use { out ->
-            for ((path, text) in entries) {
+            for ((path, bytes) in entries) {
                 out.putNextEntry(ZipEntry(path))
-                out.write(text.toByteArray())
+                out.write(bytes)
                 out.closeEntry()
             }
         }
         return BookHandle.open(file)
     }
+
+    private val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 9, 8, 7)
+    private val png = "\u0089PNG\r\n\u001A\n".toByteArray(Charsets.ISO_8859_1) + byteArrayOf(1, 2, 3)
 
     private fun page(vararg paragraphs: String) = "<html><body>" + paragraphs.joinToString("") { "<p>$it</p>" } + "</body></html>"
 
@@ -127,6 +140,58 @@ class EpubReaderTest {
             ).use(EpubReader::read)
         assertEquals(2, book.chapters.size)
         assertTrue(book.chapters[1].text.startsWith("Beta"))
+    }
+
+    private fun coverBook(
+        extra: String,
+        image: ByteArray,
+        path: String = "OEBPS/images/cover.jpg",
+        meta: String = "",
+    ) = epubBytes(
+        container.first to container.second.toByteArray(),
+        "OEBPS/content.opf" to
+            (
+                "<package version=\"3.0\"><metadata xmlns:dc=\"x\"><dc:title>T</dc:title>$meta</metadata><manifest>" +
+                    "<item id=\"a\" href=\"a.xhtml\" media-type=\"application/xhtml+xml\"/>$extra</manifest>" +
+                    "<spine><itemref idref=\"a\"/></spine></package>"
+            ).toByteArray(),
+        "OEBPS/a.xhtml" to page("Alpha $story").toByteArray(),
+        path to image,
+    ).use(EpubReader::read)
+
+    @Test
+    fun theCoverImageOfAnEpub3IsRead() {
+        val book = coverBook("<item id=\"c\" href=\"images/cover.jpg\" media-type=\"image/jpeg\" properties=\"cover-image\"/>", jpeg)
+        assertEquals(CoverFormat.JPEG, book.cover?.format)
+        assertArrayEquals(jpeg, book.cover?.bytes)
+    }
+
+    @Test
+    fun theCoverOfAnEpub2IsFoundThroughItsMetaElement() {
+        val book =
+            coverBook(
+                "<item id=\"pic\" href=\"images/cover.png\" media-type=\"image/png\"/>",
+                png,
+                path = "OEBPS/images/cover.png",
+                meta = "<meta name=\"cover\" content=\"pic\"/>",
+            )
+        assertEquals(CoverFormat.PNG, book.cover?.format)
+    }
+
+    @Test
+    fun aCoverThatIsNotAJpegOrPngIsIgnored() {
+        val book =
+            coverBook(
+                "<item id=\"c\" href=\"images/cover.jpg\" media-type=\"image/jpeg\" properties=\"cover-image\"/>",
+                "<html>not an image</html>".toByteArray(),
+            )
+        assertNull(book.cover)
+        assertEquals(1, book.chapters.size)
+    }
+
+    @Test
+    fun aBookWithoutACoverHasNone() {
+        assertNull(epub(container, opf(listOf("a")), "OEBPS/a.xhtml" to page("Alpha $story")).use(EpubReader::read).cover)
     }
 
     @Test

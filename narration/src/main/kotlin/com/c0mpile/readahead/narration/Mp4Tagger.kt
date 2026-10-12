@@ -16,8 +16,9 @@ internal object Mp4Tagger {
         chapters: List<ChapterMark>,
         title: String?,
         author: String?,
+        cover: BookCover? = null,
     ) {
-        val udta = Mp4Boxes.udta(chapters, title, author)
+        val udta = Mp4Boxes.udta(chapters, title, author, cover)
         val shifted =
             RandomAccessFile(file, "rw").use { f ->
                 val boxes = topLevel(f)

@@ -72,8 +72,21 @@ class Mp4BoxesTest {
         val tags = children(udta, meta.start + 12, meta.start + meta.size)
         assertEquals(listOf("hdlr", "ilst"), tags.map { it.type })
         val items = children(udta, tags[1].start + 8, tags[1].start + tags[1].size).map { it.type }
-        assertEquals(listOf("©nam", "©ART", "©alb", "©gen"), items)
+        assertEquals(listOf("©nam", "©ART", "aART", "©alb", "©gen"), items)
         assertTrue(String(udta, Charsets.ISO_8859_1).contains("George Orwell"))
+    }
+
+    @Test
+    fun theCoverIsEmbeddedAsACovrTagWithItsImageType() {
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 1, 2, 3)
+        val udta = Mp4Boxes.udta(emptyList(), "T", "A", BookCover.of(jpeg))
+        val meta = children(udta, 8, udta.size).single { it.type == "meta" }
+        val ilst = children(udta, meta.start + 12, meta.start + meta.size).single { it.type == "ilst" }
+        val covr = children(udta, ilst.start + 8, ilst.start + ilst.size).single { it.type == "covr" }
+        val data = children(udta, covr.start + 8, covr.start + covr.size).single()
+        assertEquals("data", data.type)
+        assertEquals(13, ByteBuffer.wrap(udta).getInt(data.start + 8)) // flags: JPEG
+        assertArrayEquals(jpeg, udta.copyOfRange(data.start + 16, data.start + data.size))
     }
 
     @Test

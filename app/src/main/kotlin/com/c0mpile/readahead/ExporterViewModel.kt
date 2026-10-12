@@ -1,14 +1,15 @@
 package com.c0mpile.readahead
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import android.os.Environment
-import android.provider.DocumentsContract
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.c0mpile.readahead.narration.BookHandle
@@ -44,6 +45,10 @@ class ExporterViewModel(
     var parallel by mutableStateOf(prefs.getInt("parallel", 1))
         private set
     var opening by mutableStateOf(true)
+
+    /** The folder finished audiobooks are saved to (as `Author/Title`); null until the user picks one. */
+    var destination by mutableStateOf(savedDestination())
+        private set
 
     var engines by mutableStateOf<List<EngineInfo>>(emptyList())
         private set
@@ -87,6 +92,21 @@ class ExporterViewModel(
         prefs.edit { putInt("parallel", value) }
     }
 
+    private fun savedDestination(): Uri? = prefs.getString("destination", null)?.toUri()?.takeIf(::canWrite)
+
+    private fun canWrite(uri: Uri): Boolean =
+        getApplication<Application>().contentResolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }
+
+    /** Remembers [tree] across restarts (the service writes to it later, possibly with the app closed). */
+    fun pickDestination(tree: Uri) {
+        val resolver = getApplication<Application>().contentResolver
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        resolver.takePersistableUriPermission(tree, flags)
+        destination?.takeIf { it != tree }?.let { old -> runCatching { resolver.releasePersistableUriPermission(old, flags) } }
+        prefs.edit { putString("destination", tree.toString()) }
+        destination = tree
+    }
+
     fun toggleKeep(value: Boolean) {
         keepChapters = value
         prefs.edit { putBoolean("keep", value) }
@@ -124,60 +144,6 @@ class ExporterViewModel(
         }
     }
 
-    var saveMessage by mutableStateOf<String?>(null)
-        private set
-    var saving by mutableStateOf(false)
-        private set
-
-    /**
-     * Copies the finished audiobook (and the chapter files, when they were kept) from the app's private folder into
-     * the folder the user picked, which a file manager and other apps can reach and which survives uninstalling.
-     */
-    fun saveTo(
-        tree: Uri,
-        from: File,
-    ) {
-        saving = true
-        saveMessage = null
-        viewModelScope.launch {
-            saveMessage =
-                try {
-                    val count = withContext(Dispatchers.IO) { copyAll(tree, from) }
-                    "Saved $count ${if (count == 1) "file" else "files"} to the folder you chose."
-                } catch (e: IOException) {
-                    "Could not save: ${e.message}"
-                } finally {
-                    saving = false
-                }
-        }
-    }
-
-    private fun copyAll(
-        tree: Uri,
-        book: File,
-    ): Int {
-        val resolver = getApplication<Application>().contentResolver
-        val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
-        val files =
-            book.parentFile
-                ?.listFiles { f -> f.extension == "m4a" || f.extension == "m4b" }
-                .orEmpty()
-                .sortedBy { it.name }
-        for (file in files) {
-            // A generic type, so the provider does not tack ".m4a" on to a ".m4b" name.
-            val target =
-                DocumentsContract.createDocument(resolver, parent, "application/octet-stream", file.name)
-                    ?: throw IOException("the folder refused ${file.name}")
-            val out = resolver.openOutputStream(target) ?: throw IOException("cannot write ${file.name}")
-            out.use { sink -> file.inputStream().use { it.copyTo(sink) } }
-        }
-        return files.size
-    }
-
-    fun forgetSave() {
-        saveMessage = null
-    }
-
     fun close() {
         book = null
         ticked.clear()
@@ -201,6 +167,8 @@ class ExporterViewModel(
         val epub = book ?: return
         val chapters = epub.chapters.filterIndexed { i, _ -> ticked.getOrNull(i) == true }
         if (chapters.isEmpty() && !opening) return
+        // A permission the user revoked in the system settings is found now, not after hours of rendering.
+        val destination = savedDestination().also { this.destination = it } ?: return
         val title = epub.title ?: "Book"
         val outDir =
             File(
@@ -208,7 +176,12 @@ class ExporterViewModel(
                 ExportRunner.safeName(listOfNotNull(epub.title, epub.author).joinToString(" - ")),
             )
         ExportState.pending =
-            Triple(ExportRequest(title, epub.author, chapters, opening, outDir, keepChapters), VoiceChoice(engine, voice, rate), parallel)
+            PendingExport(
+                ExportRequest(title, epub.author, chapters, opening, outDir, keepChapters, epub.cover),
+                VoiceChoice(engine, voice, rate),
+                parallel,
+                destination,
+            )
         ExportService.start(getApplication())
     }
 }

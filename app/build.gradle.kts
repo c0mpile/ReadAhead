@@ -7,8 +7,8 @@ android {
     namespace = "com.c0mpile.readahead"
     defaultConfig {
         applicationId = "com.c0mpile.readahead"
-        versionCode = 4
-        versionName = "0.2.2"
+        versionCode = 5
+        versionName = "0.3.0"
     }
     buildTypes {
         debug {

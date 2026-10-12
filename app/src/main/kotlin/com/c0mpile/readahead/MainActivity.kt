@@ -65,7 +65,7 @@ private fun Root(model: ExporterViewModel) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
         when (val state = ui) {
             is ExportUi.Running -> Running(state)
-            is ExportUi.Done -> Done(model, state.file)
+            is ExportUi.Done -> Done(state.location)
             is ExportUi.Failed -> Finished("Stopped", state.message, retry = start)
             ExportUi.Cancelled -> Finished("Cancelled", "The chapters that were finished are kept; start again to continue.", retry = start)
             ExportUi.Idle -> if (model.book == null) Home(model) else Chapters(model, start)
@@ -83,6 +83,18 @@ private fun Home(model: ExporterViewModel) {
     }, enabled = !model.loading) { Text(if (model.loading) "Reading…" else "Choose an EPUB") }
     model.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
     Voice(model)
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Text("Destination", style = MaterialTheme.typography.titleMedium)
+    Text("Finished audiobooks are saved to Author/Title inside this folder.", style = MaterialTheme.typography.bodySmall)
+    DestinationButton(model)
+}
+
+@Composable
+private fun DestinationButton(model: ExporterViewModel) {
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let(model::pickDestination) }
+    OutlinedButton(onClick = { picker.launch(null) }, Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(model.destination?.let(LibraryFolder::label) ?: "Choose a folder")
+    }
 }
 
 @Composable
@@ -177,11 +189,13 @@ private fun ColumnScope.Chapters(
         }
     }
     Voice(model)
+    Text("Save to", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium)
+    DestinationButton(model)
     Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = model::close) { Text("Back") }
         Button(
             onClick = start,
-            enabled = model.selectedCount > 0 || model.opening,
+            enabled = model.destination != null && (model.selectedCount > 0 || model.opening),
         ) { Text("Start export (${model.selectedCount} chapters)") }
     }
 }
@@ -199,6 +213,7 @@ private fun Running(state: ExportUi.Running) {
             }, Modifier.fillMaxWidth().padding(vertical = 8.dp))
         }
         ExportProgress.Joining -> Text("Joining the chapters…")
+        ExportProgress.Saving -> Text("Saving to your folder…")
         else -> Text("Starting…")
     }
     OutlinedButton(onClick = {
@@ -207,27 +222,10 @@ private fun Running(state: ExportUi.Running) {
 }
 
 @Composable
-private fun Done(
-    model: ExporterViewModel,
-    file: java.io.File,
-) {
-    val picker =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let { model.saveTo(it, file) } }
+private fun Done(location: String) {
     Text("Done", style = MaterialTheme.typography.headlineMedium)
-    Text(
-        "The audiobook is in this app's own storage, which is erased if the app is uninstalled " +
-            "and which file managers cannot open:\n${file.path}",
-        Modifier.padding(vertical = 8.dp),
-    )
-    Text("Save a copy somewhere you can reach it:")
-    Button(onClick = { picker.launch(null) }, enabled = !model.saving, modifier = Modifier.padding(vertical = 8.dp)) {
-        Text(if (model.saving) "Saving…" else "Save to a folder")
-    }
-    model.saveMessage?.let { Text(it) }
-    OutlinedButton(onClick = {
-        model.forgetSave()
-        ExportState.set(ExportUi.Idle)
-    }) { Text("Back") }
+    Text("The audiobook was saved to $location in the folder you chose.", Modifier.padding(vertical = 8.dp))
+    OutlinedButton(onClick = { ExportState.set(ExportUi.Idle) }) { Text("Back") }
 }
 
 @Composable

@@ -11,7 +11,7 @@ data class ChapterMark(
 
 /**
  * The MP4 boxes that turn an M4A into an audiobook: a `chpl` chapter list (Nero style, read by Audiobookshelf, VLC,
- * ffmpeg and most audiobook players) and iTunes-style tags (title, artist, album, genre) in `udta`. Pure byte
+ * ffmpeg and most audiobook players) and iTunes-style tags (title, artist, album artist, album, genre, cover) in `udta`. Pure byte
  * building; [MediaMuxer] writes the audio and the `moov` box last, so appending these to it moves no audio offsets.
  */
 internal object Mp4Boxes {
@@ -26,9 +26,10 @@ internal object Mp4Boxes {
         chapters: List<ChapterMark>,
         title: String?,
         author: String?,
+        cover: BookCover? = null,
     ): ByteArray {
         val children = ByteArrayOutputStream()
-        meta(title, author).let(children::write)
+        meta(title, author, cover).let(children::write)
         if (chapters.isNotEmpty()) children.write(chpl(chapters))
         return box("udta", children.toByteArray())
     }
@@ -62,12 +63,15 @@ internal object Mp4Boxes {
     private fun meta(
         title: String?,
         author: String?,
+        cover: BookCover?,
     ): ByteArray {
         val items = ByteArrayOutputStream()
         title?.let { text("©nam", it) }?.let(items::write)
         author?.let { text("©ART", it) }?.let(items::write)
+        author?.let { text("aART", it) }?.let(items::write)
         title?.let { text("©alb", it) }?.let(items::write)
         text("©gen", "Audiobook").let(items::write)
+        cover?.let { item("covr", it.format.flag, it.bytes) }?.let(items::write)
         val body = ByteArrayOutputStream()
         DataOutputStream(body).writeInt(0) // version and flags
         body.write(handler())
@@ -92,12 +96,19 @@ internal object Mp4Boxes {
     private fun text(
         type: String,
         value: String,
+    ): ByteArray = item(type, UTF8_FLAG, value.toByteArray(Charsets.UTF_8))
+
+    /** An `ilst` entry: a `data` box whose flags (13 JPEG, 14 PNG, 1 UTF-8 text) say what [payload] is. */
+    private fun item(
+        type: String,
+        flags: Int,
+        payload: ByteArray,
     ): ByteArray {
         val data = ByteArrayOutputStream()
         DataOutputStream(data).apply {
-            writeInt(UTF8_FLAG) // version 0, flags 1: UTF-8 text
+            writeInt(flags) // version 0 and the type flags
             writeInt(0) // locale
-            write(value.toByteArray(Charsets.UTF_8))
+            write(payload)
         }
         return box(type, box("data", data.toByteArray()))
     }
@@ -110,7 +121,7 @@ internal object Mp4Boxes {
         val kept = ByteArrayOutputStream()
         var pos = HEADER
         while (pos + HEADER <= moov.size) {
-            val size = readInt(moov, pos)
+            val size = Markup.readInt(moov, pos)
             val type = String(moov, pos + 4, 4, Charsets.ISO_8859_1)
             require(size >= HEADER && pos + size <= moov.size) { "Malformed moov box" }
             if (type != "udta") kept.write(moov, pos, size)
@@ -186,11 +197,6 @@ internal object Mp4Boxes {
         }
         return out.toByteArray()
     }
-
-    fun readInt(
-        bytes: ByteArray,
-        at: Int,
-    ): Int = Markup.readInt(bytes, at)
 
     private const val TABLE_START = 16 // box header, version and flags, entry count
     private const val NARROW = 4

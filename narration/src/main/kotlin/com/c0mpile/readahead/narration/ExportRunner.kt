@@ -20,6 +20,7 @@ class ExportRequest(
     val opening: Boolean,
     val outDir: File,
     val keepChapterFiles: Boolean,
+    val cover: BookCover? = null,
 )
 
 sealed interface ExportProgress {
@@ -34,6 +35,9 @@ sealed interface ExportProgress {
     ) : ExportProgress
 
     data object Joining : ExportProgress
+
+    /** The finished audiobook is being copied to the folder the user chose; the app reports this, [ExportRunner] does not. */
+    data object Saving : ExportProgress
 
     data class Done(
         val file: File,
@@ -78,9 +82,14 @@ class ExportRunner(
         val file: File,
     )
 
+    /**
+     * [publish] gets the joined audiobook and the chapter files once the join succeeded, before the chapter files are
+     * deleted: when it throws, they are all still there and a restart only joins and publishes again.
+     */
     suspend fun run(
         request: ExportRequest,
         onProgress: (ExportProgress) -> Unit = {},
+        publish: suspend (book: File, chapters: List<File>) -> Unit = { _, _ -> },
     ): File {
         request.outDir.mkdirs()
         work.mkdirs()
@@ -88,14 +97,15 @@ class ExportRunner(
         val todo = steps.withIndex().filter { !it.value.file.exists() }
         renderAll(todo, steps.size, onProgress)
         onProgress(ExportProgress.Joining)
-        val book = File(request.outDir, "${safeName(listOfNotNull(request.title, request.author).joinToString(" - "))}.m4b")
+        val book = File(request.outDir, "${safeName(request.title)}.m4b")
         book.delete()
         try {
-            joiner.join(steps.map { it.file }, steps.map { it.title }, book, request.title, request.author)
+            joiner.join(steps.map { it.file }, steps.map { it.title }, book, request.title, request.author, request.cover)
         } catch (e: IOException) {
             book.delete()
             throw ExportException("The chapters were rendered but joining them failed: ${e.message}", e)
         }
+        publish(book, steps.map { it.file })
         if (!request.keepChapterFiles) steps.forEach { it.file.delete() }
         onProgress(ExportProgress.Done(book))
         return book

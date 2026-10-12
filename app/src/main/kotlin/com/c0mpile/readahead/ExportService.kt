@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import com.c0mpile.readahead.narration.AacEncoder
 import com.c0mpile.readahead.narration.EngineRenderer
+import com.c0mpile.readahead.narration.ExportException
 import com.c0mpile.readahead.narration.ExportProgress
 import com.c0mpile.readahead.narration.ExportRunner
 import com.c0mpile.readahead.narration.Mp4Joiner
@@ -58,7 +59,7 @@ class ExportService : Service() {
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ReadAhead:export")
                 .apply { acquire(WAKE_LIMIT_MS) }
         ExportState.set(ExportUi.Running(null))
-        job = scope.launch { run(pending.first, pending.second, pending.third) }
+        job = scope.launch { run(pending) }
         return START_NOT_STICKY
     }
 
@@ -78,20 +79,31 @@ class ExportService : Service() {
         job?.cancel()
     }
 
-    private suspend fun run(
-        request: com.c0mpile.readahead.narration.ExportRequest,
-        choice: com.c0mpile.readahead.narration.VoiceChoice,
-        parallel: Int,
-    ) {
+    private suspend fun run(pending: PendingExport) {
         try {
+            val request = pending.request
             val runner =
-                ExportRunner({ EngineRenderer(applicationContext, choice) }, AacEncoder(), Mp4Joiner(), File(cacheDir, "work"), parallel)
-            val file =
-                runner.run(request) { progress ->
-                    ExportState.set(ExportUi.Running(progress))
-                    update(progress)
-                }
-            ExportState.set(ExportUi.Done(file))
+                ExportRunner(
+                    { EngineRenderer(applicationContext, pending.voice) },
+                    AacEncoder(),
+                    Mp4Joiner(),
+                    File(cacheDir, "work"),
+                    pending.parallel,
+                )
+            var location = ""
+            runner.run(request, { progress ->
+                ExportState.set(ExportUi.Running(progress))
+                update(progress)
+            }) { book, chapters ->
+                ExportState.set(ExportUi.Running(ExportProgress.Saving))
+                update(ExportProgress.Saving)
+                val files = if (request.keepChapterFiles) listOf(book) + chapters else listOf(book)
+                location = save(pending, files)
+                // Copied: nothing is needed in the app's storage any more.
+                files.forEach { it.delete() }
+                request.outDir.delete()
+            }
+            ExportState.set(ExportUi.Done(location))
         } catch (e: CancellationException) {
             ExportState.set(ExportUi.Cancelled)
             throw e
@@ -105,12 +117,27 @@ class ExportService : Service() {
         }
     }
 
+    private fun save(
+        pending: PendingExport,
+        files: List<File>,
+    ): String =
+        try {
+            LibraryFolder(applicationContext, pending.destination).save(files, pending.request.author, pending.request.title)
+        } catch (e: IOException) {
+            throw ExportException(
+                "The audiobook is finished but could not be saved to the folder you chose: ${e.message}. " +
+                    "It is kept in the app's storage; start again to try once more.",
+                e,
+            )
+        }
+
     private fun update(progress: ExportProgress) {
         val text =
             when (progress) {
                 is ExportProgress.Rendering ->
                     "${(progress.overall * PERCENT).toInt()} % · chapter ${progress.chapter + 1} of ${progress.chapters}: ${progress.title}"
                 ExportProgress.Joining -> "Joining the chapters…"
+                ExportProgress.Saving -> "Saving to your folder…"
                 is ExportProgress.Done -> "Done"
             }
         val fraction = (progress as? ExportProgress.Rendering)?.overall

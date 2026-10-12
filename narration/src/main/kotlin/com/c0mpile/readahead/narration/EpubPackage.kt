@@ -13,6 +13,7 @@ internal object EpubPackage {
         val navPath: String?,
         val ncxPath: String?,
         val bodyHref: String?,
+        val coverPath: String?,
     )
 
     fun read(zip: ZipFile): Package {
@@ -39,7 +40,13 @@ internal object EpubPackage {
         val ncx = parsed.ncxId?.let(manifest::get)?.first
         val landmark = nav?.let { entryText(zip, it, MAX_XML_BYTES) }?.let(EpubToc::bodyMatterHref)?.let { resolve(nav, it).first }
         val guide = parsed.guideBody?.let { abs(it) }
-        return Package(parsed.title, parsed.author, spine, nav, ncx, landmark ?: guide)
+        // EPUB 3 marks the image in the manifest; EPUB 2 names its id in a <meta name="cover">.
+        val cover =
+            parsed.manifest.values
+                .firstOrNull { "cover-image" in it.properties.split(' ') }
+                ?.let { abs(it.href) }
+                ?: parsed.coverId?.let(manifest::get)?.first
+        return Package(parsed.title, parsed.author, spine, nav, ncx, landmark ?: guide, cover)
     }
 
     private class Item(
@@ -54,6 +61,7 @@ internal object EpubPackage {
         val spine: List<Pair<String, Boolean>>,
         val ncxId: String?,
         val guideBody: String?,
+        val coverId: String?,
     )
 
     private fun parseOpf(xml: String): Opf {
@@ -63,6 +71,7 @@ internal object EpubPackage {
         var author: String? = null
         var ncxId: String? = null
         var guideBody: String? = null
+        var coverId: String? = null
         val manifest = LinkedHashMap<String, Item>()
         val spine = ArrayList<Pair<String, Boolean>>()
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
@@ -75,6 +84,7 @@ internal object EpubPackage {
                     val href = parser.getAttributeValue(null, "href")
                     if (id != null && href != null) manifest[id] = Item(href, parser.getAttributeValue(null, "properties").orEmpty())
                 }
+                "meta" -> coverId = coverId ?: parser.coverContent()
                 "spine" -> ncxId = parser.getAttributeValue(null, "toc")
                 "itemref" ->
                     parser.getAttributeValue(null, "idref")?.let {
@@ -86,8 +96,12 @@ internal object EpubPackage {
                     }
             }
         }
-        return Opf(title, author, manifest, spine, ncxId, guideBody)
+        return Opf(title, author, manifest, spine, ncxId, guideBody, coverId)
     }
+
+    /** The `content` of an EPUB 2 `<meta name="cover" content="id"/>`; null for any other meta element. */
+    private fun XmlPullParser.coverContent(): String? =
+        getAttributeValue(null, "content").takeIf { getAttributeValue(null, "name") == "cover" }
 
     private fun XmlPullParser.text(): String? = runCatching { nextText().trim() }.getOrNull()?.ifEmpty { null }
 
